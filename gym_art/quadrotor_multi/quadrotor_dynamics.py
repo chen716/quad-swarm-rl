@@ -4,7 +4,7 @@ import numpy as np
 from gymnasium import spaces
 from numba import njit
 
-from gym_art.quadrotor_multi.inertia import QuadLink, QuadLinkSimplified
+from gym_art.quadrotor_multi.inertia import QuadLink, QuadLinkSimplified, OmniLink
 from gym_art.quadrotor_multi.numba_utils import OUNoiseNumba, angvel2thrust_numba, numba_cross
 from gym_art.quadrotor_multi.quad_utils import OUNoise, rand_uniform_rot3d, cross_vec_mx4, cross_mx4, npa, cross, \
     randyaw, to_xyhat, normalize
@@ -93,6 +93,72 @@ class QuadrotorDynamics:
 
         # Disturbance
         self.extra_force = np.zeros(3)
+    def __init__(self, model_params, room_box=None, dynamics_steps_num=1, dim_mode="3D", gravity=GRAV,
+                 dynamics_simplification=False, use_numba=False, dt=1/200, omni=True):
+        
+        
+        # Pre-set Parameters
+        self.dt = dt
+        self.use_numba = use_numba
+
+        # Dynamics
+        self.dynamics_steps_num = dynamics_steps_num
+        self.dynamics_simplification = dynamics_simplification
+        # cw = 1 ; ccw = -1 [ccw, cw, ccw, cw]
+        
+        self.prop_ccw = np.array([1., 1., -1., -1.,-1., -1., 1., 1.])
+        
+        # Reference: https://docs.google.com/document/d/1wZMZQ6jilDbj0JtfeYt0TonjxoMPIgHwYbrFrMNls84/edit
+        self.omega_max = 40.  # rad/s The CF sensor can only show 35 rad/s (2000 deg/s), we allow some extra
+        self.vxyz_max = 3.  # m/s
+        self.gravity = gravity
+        self.acc_max = 3. * GRAV
+        self.since_last_svd = 0  # counter
+        self.since_last_svd_limit = 0.5  # in sec - how often mandatory orthogonality should be applied
+        self.eye = np.eye(3)
+        # Initializing model
+        self.thrust_noise = None
+        self.update_model(model_params)
+        # Sanity checks
+        assert self.inertia.shape == (3,)
+
+        # Dynamics used in step
+        #Tau is used for representing the time in steps
+        self.motor_tau_up = 4 * dt / (self.motor_damp_time_up + EPS)
+        self.motor_tau_down = 4 * dt / (self.motor_damp_time_down + EPS)
+
+
+
+        # Room
+        if room_box is None:
+            self.room_box = np.array([[0., 0., 0.], [10., 10., 10.]])
+        else:
+            self.room_box = np.array(room_box).copy()
+
+        # # Floor
+        self.on_floor = False
+        # # # If pos_z smaller than this threshold, we assume that drone collide with the floor
+        self.floor_threshold = 0.05
+        # # # Floor Fiction
+        self.mu = 0.6
+        # # # Collision with room
+        self.crashed_wall = False
+        self.crashed_ceiling = False
+        self.crashed_floor = False
+
+        # Selecting 1D, Planar or Full 3D modes
+        self.dim_mode = dim_mode
+        if self.dim_mode == '1D':
+            self.control_mx = np.ones([4, 1])
+        elif self.dim_mode == '2D':
+            self.control_mx = np.array([[1., 0.], [1., 0.], [0., 1.], [0., 1.]])
+        elif self.dim_mode == '3D':
+            self.control_mx = np.eye(4)
+        else:
+            raise ValueError('QuadEnv: Unknown dimensionality mode %s' % self.dim_mode)
+
+        # Disturbance
+        self.extra_force = np.zeros(3)
 
     @staticmethod
     def angvel2thrust(w, linearity=0.424):
@@ -108,13 +174,13 @@ class QuadrotorDynamics:
         if self.dynamics_simplification:
             self.model = QuadLinkSimplified(params=model_params["geom"])
         else:
-            self.model = QuadLink(params=model_params["geom"])
+            self.model = OmniLink(params=model_params["geom"])
         self.model_params = model_params
 
         # PARAMETERS FOR RANDOMIZATION
         self.mass = self.model.m
         self.inertia = np.diagonal(self.model.I_com)
-
+    
         self.thrust_to_weight = self.model_params["motor"]["thrust_to_weight"]
         self.torque_to_thrust = self.model_params["motor"]["torque_to_thrust"]
         self.motor_linearity = self.model_params["motor"]["linearity"]
@@ -127,14 +193,17 @@ class QuadrotorDynamics:
         self.vel_damp = self.model_params["damp"]["vel"]
         self.damp_omega_quadratic = self.model_params["damp"]["omega_quadratic"]
 
+
+        self.prop_orientation = self.model.motor_ori
         # COMPUTED (Dependent) PARAMETERS
         try:
             self.motor_assymetry = np.array(self.model_params["motor"]["assymetry"])
         except:
             self.motor_assymetry = np.array([1.0, 1.0, 1.0, 1.0])
             print("WARNING: Motor assymetry was not setup. Setting assymetry to:", self.motor_assymetry)
-        self.motor_assymetry = self.motor_assymetry * 4. / np.sum(self.motor_assymetry)  # re-normalizing to sum-up to 4
-        self.thrust_max = GRAV * self.mass * self.thrust_to_weight * self.motor_assymetry / 4.0
+        
+        self.motor_assymetry = self.motor_assymetry * 8. / np.sum(self.motor_assymetry)  # re-normalizing to sum-up to 8
+        self.thrust_max = GRAV * self.mass * self.thrust_to_weight * self.motor_assymetry / 8.0
         self.torque_max = self.torque_to_thrust * self.thrust_max  # propeller torque scales
 
         # Propeller positions in X configurations
@@ -457,6 +526,8 @@ class QuadrotorDynamics:
                 self.on_floor = False
 
             # Computing accelerations
+            if self.pos[2] < 0.4:
+                extra_force = np.zeros
             force = np.matmul(self.rot, sum_thr_drag) + extra_force
             self.acc = [0., 0., -GRAV] + (1.0 / self.mass) * force
 
@@ -637,6 +708,8 @@ def floor_interaction_numba(pos, vel, rot, omega, mu, mass, sum_thr_drag, thrust
             on_floor = False
 
         # Computing accelerations
+        if pos[2] < 0.4:
+            extra_force = np.zeros(3)
         force = rot @ sum_thr_drag + extra_force
         acc = np.array((0., 0., -GRAV)) + (1.0 / mass) * force
 

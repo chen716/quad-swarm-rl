@@ -235,9 +235,10 @@ class QuadLink(object):
         # X signs according to clockwise starting front-left
         # i.e. the list bodies are counting clockwise: front_right, back_right, back_left, front_left
         # See CrazyFlie doc for more details: https://wiki.bitcraze.io/projects:crazyflie2:userguide:assembly
-        self.x_sign = np.array([1, -1, -1, 1])
-        self.y_sign = np.array([-1, -1, 1, 1])
-        self.sign_mx = np.array([self.x_sign, self.y_sign, np.array([1., 1., 1., 1.])])
+        self.x_sign = np.array([1, -1, 1, -1, 1, -1, 1, -1])
+        self.y_sign = np.array([-1, -1, 1, 1, -1, -1, 1, 1])
+        self.z_sign = np.array([-1, -1, -1, -1, 1, 1, 1, 1])
+        self.sign_mx = np.array([self.x_sign, self.y_sign, self.z_sign])
         self.motors_coord = self.sign_mx * self.motor_xyz[:, None]
         self.props_coord = copy.deepcopy(self.motors_coord)
         self.props_coord[2,:] = (self.props_coord[2,:] + self.params["motors"]["h"] / 2. + self.params["propellers"]["h"])
@@ -309,6 +310,150 @@ class QuadLink(object):
     def m(self):
         return np.sum([link.m for link in self.links]) 
 
+class OmniLink(object):
+    """
+    Quadrotor link set to compute inertia.
+    Initial coordinate system assumes being in the middle of the central body.
+    Orientation of axes: x - forward; y - left; z - up
+    arm_angle == |/ , i.e. between the x axis and the axis of the arm
+    Quadrotor assumes X configuration.
+    """
+    def __init__(self, params=None, verbose=False):
+        # PARAMETERS (CrazyFlie by default)
+        self.motors_num = 8
+        self.params = {}
+        self.params["body"] = {"l": 0.03, "w": 0.03, "h": 0.004, "m": 0.005}
+        self.params["payload"] = {"l": 0.035, "w": 0.02, "h": 0.008, "m": 0.01}
+        self.params["arms"] = {"w":0.005, "h":0.005, "m":0.001}
+        self.params["motors"] = {"h":0.02, "r":0.0035, "m":0.0015}
+        self.params["propellers"] = {"h":0.002, "r":0.022, "m":0.00075}
+
+        self.params["arms_pos"] = {"angle": 45., "z": 0.}
+
+        self.params["payload_pos"] = {"xy": [0., 0.], "z_sign": 1.}
+        self.params["motor_pos"] = {"xyz": [0.065/2, 0.065/2, 0.]}
+        if params is not None:
+            self.params.update(params)
+        else:
+            print("WARN: since params is None the CrazyFlie params will be used")
+
+        # Printing all params
+        if verbose:
+            print("######################################################")
+            print("QUAD PARAMETERS:")
+            [print(key,":", val) for key,val in self.params.items()]
+            print("######################################################")
+        
+        # Dependent parameters
+        self.arm_angle = deg2rad(self.params["arms_pos"]["angle"])
+        if self.arm_angle == 0.:
+            self.arm_angle = 0.01
+        self.motor_xyz = np.array(self.params["motor_pos"]["xyz"])
+        delta_y = self.motor_xyz[1] - self.params["body"]["w"] / 2.
+        if "l" not in self.params["arms"]:
+            self.arm_length =  delta_y / np.sin(self.arm_angle)
+            self.params["arms"]["l"] = self.arm_length
+        else:
+            self.arm_length = self.params["arms"]["l"]
+        # print("Arm length: ", self.arm_length, "angle: ", self.arm_angle)
+
+        # Vectors of coordinates of the COMs of arms, s.t. their ends will be exactly at motors locations
+        self.arm_xyz = np.array([ self.motor_xyz[0] - delta_y /(2 * np.tan(self.arm_angle)),
+                                 self.motor_xyz[1] - delta_y / 2,
+                                 self.motor_xyz[2] - delta_y / 2])
+        
+
+        # X signs according to clockwise starting front-left
+        # i.e. the list bodies are counting clockwise: front_right, back_right, back_left, front_left
+        # See CrazyFlie doc for more details: https://wiki.bitcraze.io/projects:crazyflie2:userguide:assembly
+        self.x_sign = np.array([1, -1, 1, -1, 1, -1, 1, -1])
+        self.y_sign = np.array([-1, -1, 1, 1, -1, -1, 1, 1])
+        self.z_sign = np.array([-1, -1, -1, -1, 1, 1, 1, 1])
+        self.x_ori = np.array([-0.788675,  0.211325, -0.211325, 0.788675, 0.788675, -0.211325,  0.211325, -0.788675])
+        self.y_ori = np.array([-0.211325, -0.788675,  0.788675, 0.211325, 0.211325,  0.788675, -0.788675, -0.211325])
+        self.z_ori = np.array([-0.57735,   0.57735,   0.57735, -0.57735, -0.57735,   0.57735,   0.57735,  -0.57735])
+        
+        self.motor_ori = np.stack([self.x_ori, self.y_ori, self.z_ori], axis=1) 
+        
+        self.sign_mx = np.array([self.x_sign, self.y_sign, self.z_sign])
+        self.motors_coord = self.sign_mx * self.motor_xyz[:, None]
+        self.props_coord = copy.deepcopy(self.motors_coord)
+        
+        #Change this to prop orientation with 2.0 mag
+        self.props_coord = self.motors_coord + self.motor_ori * 0.03
+        
+        self.arm_angles = [
+            -self.arm_angle, 
+             self.arm_angle, 
+            -self.arm_angle, 
+             self.arm_angle]
+        #
+        self.arms_coord = self.sign_mx * self.arm_xyz[:, None]
+
+        # First defining the bodies
+        self.body =  BoxLink(**self.params["body"], name="body") # Central body 
+        self.payload = BoxLink(**self.params["payload"], name="payload") # Could include battery
+        self.arms  = [BoxLink(**self.params["arms"], name="arm_%d" % i) for i in range(self.motors_num)] # Just arms
+        self.motors =  [CylinderLink(**self.params["motors"], name="motor_%d" % i) for i in range(self.motors_num)] # The motors itself
+        self.props =  [CylinderLink(**self.params["propellers"], name="prop_%d" % i) for i in range(self.motors_num)] # Propellers
+        
+        self.links = [self.body, self.payload] + self.arms + self.motors + self.props
+
+        # print("######################################################")
+        # print("Inertias:")
+        # [print(link.I_com, "\n") for link in self.links]
+        # print("######################################################")
+
+        # Defining locations of all bodies
+        self.body_pose = LinkPose()
+        self.payload_pose = LinkPose(xyz=list(self.params["payload_pos"]["xy"]) + [np.sign(self.params["payload_pos"]["z_sign"])*(self.body.h + self.payload.h) / 2])
+        self.arms_pose = [LinkPose(alpha=self.arm_angles[i], xyz=self.arms_coord[:, i]) 
+                            for i in range(self.motors_num)]
+        self.motors_pos = [LinkPose(xyz=self.motors_coord[:, i]) 
+                            for i in range(self.motors_num)]
+        self.props_pos = [LinkPose(xyz=self.props_coord[:, i]) 
+                    for i in range(self.motors_num)]
+        
+        self.poses = [self.body_pose, self.payload_pose] + self.arms_pose + self.motors_pos + self.props_pos
+
+        # Recomputing the center of mass of the new system of bodies
+        masses = [link.m for link in self.links]
+        self.com = sum([ masses[i] * pose.xyz for i, pose in enumerate(self.poses)]) / self.m
+
+        # Recomputing corrections on posess with the respect to the new system
+        # self.poses_init = ujson.loads(ujson.dumps(self.poses))
+        self.poses_init = copy.deepcopy(self.poses)
+        for pose in self.poses:
+            pose.xyz -= self.com
+        
+        if verbose:
+            print("Initial poses: ")
+            [print(pose.xyz) for pose in self.poses_init]
+            print("###################################")
+            print("Final poses: ")
+            [print(pose.xyz) for pose in self.poses]
+            print("###################################")
+
+        # Computing inertias
+        self.links_I = []
+        for link_i, link in enumerate(self.links):
+            I_rot = rotate_I(I=link.I_com, R=self.poses[link_i].R)
+            I_trans = translate_I(I=I_rot, m=link.m, xyz=self.poses[link_i].xyz)
+            self.links_I.append(I_trans)
+        
+        # Total inertia
+        self.I_com = sum(self.links_I)
+
+        # Propeller poses
+        self.prop_pos = np.array([pose.xyz for pose in self.motors_pos])
+    
+    @property
+    def m(self):
+        return np.sum([link.m for link in self.links]) 
+
+
+
+
 class QuadLinkSimplified(object):
     """
     Simplified version of a quad rotor model.
@@ -347,6 +492,7 @@ class QuadLinkSimplified(object):
         motor_pos_x = motor_pos_y = self.arm_length * np.sqrt(2) / 4
         self.params["motor_pos"]["xyz"] = [motor_pos_x, motor_pos_y, 0.0]
         self.motor_xyz = np.array(self.params["motor_pos"]["xyz"])
+        
         ## calculate the total mass
         if not "mass" in self.params:
             mass_body =  BoxLink(**self.params["body"]).m
@@ -373,6 +519,8 @@ class QuadLinkSimplified(object):
         # Vectors of coordinates of the COMs of arms, s.t. their ends will be exactly at motors locations
         self.arm_xyz = np.array([0, 0, self.params["arms_pos"]["z"] ])
 
+        
+        
         # X signs according to clockwise starting front-left
         # i.e. the list bodies are counting clockwise: front_right, back_right, back_left, front_left
         # See CrazyFlie doc for more details: https://wiki.bitcraze.io/projects:crazyflie2:userguide:assembly

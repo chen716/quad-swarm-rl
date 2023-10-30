@@ -196,6 +196,13 @@ class QuadrotorEnvMulti(gym.Env):
             self.all_collisions = {}
 
         # Log
+        self.reset_scene = False
+        self.simulation_start_time = 0
+        self.frames_since_last_render = self.render_skip_frames = 0
+        self.render_every_nth_frame = 1
+        self.render_speed = 1.0
+        self.quads_formation_size = 2.0
+        self.all_collisions = {}
         self.distance_to_goal = [[] for _ in range(len(self.envs))]
         self.reached_goal = [False for _ in range(len(self.envs))]
 

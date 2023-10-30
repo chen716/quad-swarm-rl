@@ -4,7 +4,7 @@ import numpy as np
 from gymnasium import spaces
 from numba import njit
 
-from gym_art.quadrotor_multi.inertia import QuadLink, QuadLinkSimplified, OmniLink
+from gym_art.quadrotor_multi.inertia import QuadLink, QuadLinkSimplified, 
 from gym_art.quadrotor_multi.numba_utils import OUNoiseNumba, angvel2thrust_numba, numba_cross
 from gym_art.quadrotor_multi.quad_utils import OUNoise, rand_uniform_rot3d, cross_vec_mx4, cross_mx4, npa, cross, \
     randyaw, to_xyhat, normalize

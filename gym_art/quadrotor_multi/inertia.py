@@ -373,7 +373,7 @@ class OmniLink(object):
         self.y_ori = np.array([-0.211325, -0.788675,  0.788675, 0.211325, 0.211325,  0.788675, -0.788675, -0.211325])
         self.z_ori = np.array([-0.57735,   0.57735,   0.57735, -0.57735, -0.57735,   0.57735,   0.57735,  -0.57735])
         
-        self.motor_ori = np.stack([self.x_ori, self.y_ori, self.z_ori], axis=1) 
+        self.motor_ori = np.stack([self.x_ori, self.y_ori, self.z_ori]) 
         
         self.sign_mx = np.array([self.x_sign, self.y_sign, self.z_sign])
         self.motors_coord = self.sign_mx * self.motor_xyz[:, None]

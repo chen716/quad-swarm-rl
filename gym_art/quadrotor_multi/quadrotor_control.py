@@ -8,24 +8,7 @@ GRAV = 9.81
 # import line_profiler
 # like raw motor control, but shifted such that a zero action
 # corresponds to the amount of thrust needed to hover.
-class ShiftedMotorControl(object):
-    def __init__(self, dynamics):
-        pass
-
-    def action_space(self, dynamics):
-        # make it so the zero action corresponds to hovering
-        low = -1.0 * np.ones(4)
-        high = (dynamics.thrust_to_weight - 1.0) * np.ones(4)
-        return spaces.Box(low, high, dtype=np.float32)
-
-    # modifies the dynamics in place.
-    # @profile
-    def step(self, dynamics, action, dt):
-        action = (action + 1.0) / dynamics.thrust_to_weight
-        action[action < 0] = 0
-        action[action > 1] = 1
-        dynamics.step(action, dt)
-
+ACT_DIM = 8
 
 class RawControl(object):
     def __init__(self, dynamics, zero_action_middle=True):
@@ -37,15 +20,15 @@ class RawControl(object):
     def action_space(self, dynamics):
         if not self.zero_action_middle:
             # Range of actions 0 .. 1
-            self.low = np.zeros(4)
+            self.low = np.zeros(ACT_DIM)
             self.bias = 0.0
             self.scale = 1.0
         else:
             # Range of actions -1 .. 1
-            self.low = -np.ones(4)
+            self.low = -np.ones(ACT_DIM)
             self.bias = 1.0
             self.scale = 0.5
-        self.high = np.ones(4)
+        self.high = np.ones(ACT_DIM)
         return spaces.Box(self.low, self.high, dtype=np.float32)
 
     # modifies the dynamics in place.

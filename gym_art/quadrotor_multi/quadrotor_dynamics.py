@@ -4,10 +4,11 @@ import numpy as np
 from gymnasium import spaces
 from numba import njit
 
-from gym_art.quadrotor_multi.inertia import QuadLink, QuadLinkSimplified, 
+from gym_art.quadrotor_multi.inertia import QuadLink, QuadLinkSimplified, OmniLink
 from gym_art.quadrotor_multi.numba_utils import OUNoiseNumba, angvel2thrust_numba, numba_cross
 from gym_art.quadrotor_multi.quad_utils import OUNoise, rand_uniform_rot3d, cross_vec_mx4, cross_mx4, npa, cross, \
     randyaw, to_xyhat, normalize
+from gym_art.quadrotor_multi.quadrotor_control import ACT_DIM
 
 GRAV = 9.81  # default gravitational constant
 EPS = 1e-6  # small constant to avoid divisions by 0 and log(0)
@@ -58,7 +59,7 @@ class QuadrotorDynamics:
         self.update_model(model_params)
         # Sanity checks
         assert self.inertia.shape == (3,)
-
+        #--env = quadrotor_multi - -train_for_env_steps = 1000000000 - -algo = APPO - -use_rnn = False - -num_workers = 2 - -num_envs_per_worker = 2 - -learning_rate = 0.0001 - -ppo_clip_value = 5.0 - -recurrence = 1 - -nonlinearity = tanh - -actor_critic_share_weights = False - -policy_initialization = xavier_uniform - -adaptive_stddev = False - -with_vtrace = False - -max_policy_lag = 100000000 - -rnn_size = 256 - -gae_lambda = 1.00 - -max_grad_norm = 5.0 - -exploration_loss_coeff = 0.0 - -rollout = 128 - -batch_size = 1024 - -with_pbt = False - -normalize_input = False - -normalize_returns = False - -reward_clip = 10 - -save_milestones_sec = 3600 - -anneal_collision_steps = 0 - -replay_buffer_sample_prob = 0.0 - -quads_mode = dynamic_same_goal - -quads_episode_duration = 15.0 - -quads_obs_repr = xyz_vxyz_R_omega - -quads_neighbor_hidden_size = 256 - -quads_neighbor_obs_type = none - -quads_neighbor_encoder_type = no_encoder - -quads_neighbor_visible_num = 0 - -quads_use_obstacles = False - -quads_use_downwash = False - -quads_obstacle_obs_type = none - -experiment = test_generate_v4 - -quads_num_agents = 1 - -quads_use_numba = False
         # Dynamics used in step
         self.motor_tau_up = 4 * dt / (self.motor_damp_time_up + EPS)
         self.motor_tau_down = 4 * dt / (self.motor_damp_time_down + EPS)
@@ -180,7 +181,7 @@ class QuadrotorDynamics:
         # PARAMETERS FOR RANDOMIZATION
         self.mass = self.model.m
         self.inertia = np.diagonal(self.model.I_com)
-    
+        
         self.thrust_to_weight = self.model_params["motor"]["thrust_to_weight"]
         self.torque_to_thrust = self.model_params["motor"]["torque_to_thrust"]
         self.motor_linearity = self.model_params["motor"]["linearity"]
@@ -199,7 +200,7 @@ class QuadrotorDynamics:
         try:
             self.motor_assymetry = np.array(self.model_params["motor"]["assymetry"])
         except:
-            self.motor_assymetry = np.array([1.0, 1.0, 1.0, 1.0])
+            self.motor_assymetry = np.array([1.0, 1.0, 1.0, 1.0,1.0, 1.0, 1.0, 1.0])
             print("WARNING: Motor assymetry was not setup. Setting assymetry to:", self.motor_assymetry)
         
         self.motor_assymetry = self.motor_assymetry * 8. / np.sum(self.motor_assymetry)  # re-normalizing to sum-up to 8
@@ -211,7 +212,7 @@ class QuadrotorDynamics:
 
         # unit: meters^2 ??? maybe wrong
         self.prop_crossproducts = np.cross(self.prop_pos, [0., 0., 1.])
-        self.prop_ccw_mx = np.zeros([3, 4])  # Matrix allows using matrix multiplication
+        self.prop_ccw_mx = np.zeros([3, 8])  # Matrix allows using matrix multiplication
         self.prop_ccw_mx[2, :] = self.prop_ccw
 
         # Forced dynamics auxiliary matrices
@@ -228,10 +229,20 @@ class QuadrotorDynamics:
         self.init_thrust_noise()
 
         self.arm = np.linalg.norm(self.model.motor_xyz[:2])
+        torque_matrix_unit_array = np.array([
+            [0.366025, 1.366025, -1.],
+            [-1.366025, 0.366025, 1.],
+            [1.366025, -0.366025, 1.],
+            [-0.366025, -1.366025, -1.],
+            [0.366025, 1.366025, 1.],
+            [-1.366025, 0.366025, -1.],
+            [1.366025, -0.366025, -1.],
+            [-0.366025, -1.366025, 1.]
+        ])
 
         # the ratio between max torque and inertia around each axis
         # the 0-1 matrix on the right is the way to sum-up
-        self.torque_to_inertia = self.G_omega @ np.array([[0., 0., 0.], [0., 1., 1.], [1., 1., 0.], [1., 0., 1.]])
+        self.torque_to_inertia = self.G_omega @ torque_matrix_unit_array #np.array([[0., 0., 0.], [0., 1., 1.], [1., 1., 0.], [1., 0., 1.]])
         self.torque_to_inertia = np.sum(self.torque_to_inertia, axis=1)
         # self.torque_to_inertia = self.torque_to_inertia / np.linalg.norm(self.torque_to_inertia)
 
@@ -548,8 +559,8 @@ class QuadrotorDynamics:
 
     @staticmethod
     def action_space():
-        low = np.zeros(4)
-        high = np.ones(4)
+        low = np.zeros(ACT_DIM)
+        high = np.ones(ACT_DIM)
         return spaces.Box(low, high, dtype=np.float32)
 
     def __deepcopy__(self, memo):
@@ -724,3 +735,36 @@ def compute_velocity_and_acceleration(vel, vel_damp, dt, rot_tpose, grav_arr, ac
     # Accelerometer measures so-called "proper acceleration" that includes gravity with the opposite sign
     accm = rot_tpose @ (acc + grav_arr)
     return vel, accm
+
+# --env=quadrotor_multi --train_for_env_steps=1000000000 --algo=APPO --use_rnn=False --num_workers=2 --num_envs_per_worker=2 --learning_rate=0.0001 --ppo_clip_value=5.0 --recurrence=1 --nonlinearity=tanh
+# --actor_critic_share_weights=False
+# --policy_initialization=xavier_uniform
+# --adaptive_stddev=False
+# --with_vtrace=False
+# --max_policy_lag=100000000
+# --rnn_size=256
+# --gae_lambda=1.00
+# --max_grad_norm=5.0
+# --exploration_loss_coeff=0.0
+# --rollout=128
+# --batch_size=1024
+# --with_pbt=False
+# --normalize_input=False
+# --normalize_returns=False
+# --reward_clip=10
+# --save_milestones_sec=3600
+# --anneal_collision_steps=0
+# --replay_buffer_sample_prob=0.0
+# --quads_mode=dynamic_same_goal
+# --quads_episode_duration=15.0
+# --quads_obs_repr=xyz_vxyz_R_omega
+# --quads_neighbor_hidden_size=256
+# --quads_neighbor_obs_type=none
+# --quads_neighbor_encoder_type=no_encoder
+# --quads_neighbor_visible_num=0
+# --quads_use_obstacles=False
+# --quads_use_downwash=False
+# --quads_obstacle_obs_type=none
+# --experiment=test_generate_v4
+# --quads_num_agents=1
+# --quads_use_numba=False

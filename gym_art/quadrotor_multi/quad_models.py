@@ -1,4 +1,4 @@
-def crazyflie_params():
+def defaultquad_params():
     ## See: Ref[2] for details
     ## Geometric parameters for Inertia and the model
     geom_params = {}
@@ -42,50 +42,7 @@ def crazyflie_params():
     return params
 
 
-def defaultquad_params():
-    # Similar to AscTec Hummingbird: Ref[3]
-    ## Geometric parameters for Inertia and the model
-    geom_params = {}
-    geom_params["body"] = {"l": 0.1, "w": 0.1, "h": 0.085, "m": 0.5}
-    geom_params["payload"] = {"l": 0.12, "w": 0.12, "h": 0.04, "m": 0.1}
-    geom_params["arms"] = {"l": 0.1, "w":0.015, "h":0.015, "m":0.025} #0.17 total arm
-    geom_params["motors"] = {"h":0.02, "r":0.025, "m":0.02}
-    geom_params["propellers"] = {"h":0.001, "r":0.1, "m":0.009}
-    
-    geom_params["motor_pos"] = {"xyz": [0.12, 0.12, 0.]}
-    geom_params["arms_pos"] = {"angle": 45., "z": 0.}
-    geom_params["payload_pos"] = {"xy": [0., 0.], "z_sign": -1}
-    # z_sing corresponds to location (+1 - on top of the body, -1 - on the bottom of the body)
-    
-    ## Damping parameters
-    # damp_params = {"vel": 0.001, "omega_quadratic": 0.015}
-    damp_params = {"vel": 0.0, "omega_quadratic": 0.0}
-
-    ## Noise parameters
-    noise_params = {}
-    noise_params["thrust_noise_ratio"] = 0.05
-    
-    ## Motor parameters
-    motor_params = {"thrust_to_weight" : 2.8,
-                    "assymetry": [1.0, 1.0, 1.0, 1.0], 
-                    "torque_to_thrust": 0.05,
-                    "linearity": 1.0, # 0.0476 for Hummingbird (See [5]) if we want to use RPMs instead of force.
-                    "C_drag": 0.,
-                    "C_roll": 0.,
-                    "damp_time_up": 0,
-                    "damp_time_down": 0
-                    }
-    ## Summarizing
-    params = {
-        "geom": geom_params, 
-        "damp": damp_params, 
-        "noise": noise_params,
-        "motor": motor_params
-    }
-    return params
-
-
-def omniquad_params():
+def crazyflie_params():# defaultquad_params():
     # Similar to AscTec Hummingbird: Ref[3]
     ## Geometric parameters for Inertia and the model
         # Similar to AscTec Hummingbird: Ref[3]
@@ -131,14 +88,13 @@ def omniquad_params():
 
 
 
-
-def defaultquad_params():
+def omniquad_params():#def defaultquad_params():
     # Similar to AscTec Hummingbird: Ref[3]
     ## Geometric parameters for Inertia and the model
     geom_params = {}
     geom_params["body"] = {"l": 0.1, "w": 0.1, "h": 0.085, "m": 0.5}
     geom_params["payload"] = {"l": 0.12, "w": 0.12, "h": 0.04, "m": 0.1}
-    geom_params["arms"] = {"l": 0.1, "w":0.015, "h":0.015, "m":0.025} #0.17 total arm
+    geom_params["arms"] = {"l": 0.3, "w":0.015, "h":0.015, "m":0.025} #0.17 total arm
     geom_params["motors"] = {"h":0.02, "r":0.025, "m":0.02}
     geom_params["propellers"] = {"h":0.001, "r":0.1, "m":0.009}
     

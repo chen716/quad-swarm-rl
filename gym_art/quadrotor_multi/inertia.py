@@ -386,7 +386,12 @@ class OmniLink(object):
             -self.arm_angle, 
              self.arm_angle, 
             -self.arm_angle, 
-             self.arm_angle]
+             self.arm_angle,
+            -self.arm_angle,
+            self.arm_angle,
+            -self.arm_angle,
+            self.arm_angle
+        ]
         #
         self.arms_coord = self.sign_mx * self.arm_xyz[:, None]
 
@@ -624,7 +629,7 @@ if __name__ == "__main__":
     # params["payload_pos"] = {"xy": [0., 0.], "z_sign": 1}
     # z_sing corresponds to location (+1 - on top of the body, -1 - on the bottom of the body)
 
-    quad_crazyflie = QuadLink(params=crazyflie_params()["geom"], verbose=True)
+    quad_crazyflie = OmniLink(params=crazyflie_params()["geom"], verbose=True)
     print("Crazyflie: ")
     report(quad_crazyflie)
 

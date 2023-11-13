@@ -251,17 +251,18 @@ class QuadrotorDynamics:
     def init_thrust_noise(self):
         # sigma = 0.2 gives roughly max noise of -1 ... 1
         if self.use_numba:
-            self.thrust_noise = OUNoiseNumba(4, sigma=0.2 * self.thrust_noise_ratio)
+            self.thrust_noise = OUNoiseNumba(8, sigma=0.2 * self.thrust_noise_ratio)
+            self.thrust_noise = OUNoiseNumba(8, sigma=0.2 * self.thrust_noise_ratio)
         else:
-            self.thrust_noise = OUNoise(4, sigma=0.2 * self.thrust_noise_ratio)
+            self.thrust_noise = OUNoise(8, sigma=0.2 * self.thrust_noise_ratio)
 
     # pos, vel, in world coordinates (meters)
     # rotation is 3x3 matrix (body coordinates) -> (world coordinates)dt
     # omega is angular velocity (radians/sec) in body coordinates, i.e. the gyroscope
-    def set_state(self, position, velocity, rotation, omega, thrusts=np.zeros((4,))):
+    def set_state(self, position, velocity, rotation, omega, thrusts=np.zeros((8,))):
         for v in (position, velocity, omega):
             assert v.shape == (3,)
-        assert thrusts.shape == (4,)
+        assert thrusts.shape == (8,)
         assert rotation.shape == (3, 3)
         self.pos = deepcopy(position)
         self.vel = deepcopy(velocity)
@@ -293,7 +294,9 @@ class QuadrotorDynamics:
         self.extra_force = extra_force
 
         if self.use_numba:
-            [self.step1_numba(thrust_cmds, dt, thrust_noise, extra_force) for _ in range(self.dynamics_steps_num)]
+            # [self.step1_numba(thrust_cmds, dt, thrust_noise, extra_force) for _ in range(self.dynamics_steps_num)]
+            [self.step1(thrust_cmds, dt, thrust_noise, extra_force) for _ in range(self.dynamics_steps_num)]
+
         else:
             [self.step1(thrust_cmds, dt, thrust_noise, extra_force) for _ in range(self.dynamics_steps_num)]
 
@@ -313,7 +316,7 @@ class QuadrotorDynamics:
         # I use the multiplier 4, since 4*T ~ time for a step response to finish, where
         # T is a time constant of the first-order filter
         motor_tau_down = np.array(self.motor_tau_down)
-        motor_tau = self.motor_tau_up * np.ones([4, ])
+        motor_tau = self.motor_tau_up * np.ones([8, ])
         motor_tau[thrust_cmds < self.thrust_cmds_damp] = motor_tau_down
         motor_tau[motor_tau > 1.] = 1.
 
@@ -467,8 +470,8 @@ class QuadrotorDynamics:
                                                                          acc=self.acc)
 
     def reset(self):
-        self.thrust_cmds_damp = np.zeros([4])
-        self.thrust_rot_damp = np.zeros([4])
+        self.thrust_cmds_damp = np.zeros([8])
+        self.thrust_rot_damp = np.zeros([8])
 
     def floor_interaction(self, sum_thr_drag, extra_force):
         # Change pos, omega, rot, acc
@@ -525,8 +528,8 @@ class QuadrotorDynamics:
                 self.set_state(self.pos, self.vel, self.rot, self.omega)
 
                 # reset momentum / accumulation of thrust
-                self.thrust_cmds_damp = np.zeros([4])
-                self.thrust_rot_damp = np.zeros([4])
+                self.thrust_cmds_damp = np.zeros([8])
+                self.thrust_rot_damp = np.zeros([8])
 
             self.acc = [0., 0., -GRAV] + (1.0 / self.mass) * force
             self.acc[2] = np.maximum(0, self.acc[2])
@@ -539,7 +542,7 @@ class QuadrotorDynamics:
             # Computing accelerations
             if self.pos[2] < 0.4:
                 extra_force = np.zeros
-            force = np.matmul(self.rot, sum_thr_drag) + extra_force
+            force = np.matmul(self.rot, sum_thr_drag)
             self.acc = [0., 0., -GRAV] + (1.0 / self.mass) * force
 
     def look_at(self):

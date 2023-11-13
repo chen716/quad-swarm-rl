@@ -92,7 +92,7 @@ def omniquad_params():#def defaultquad_params():
     # Similar to AscTec Hummingbird: Ref[3]
     ## Geometric parameters for Inertia and the model
     geom_params = {}
-    geom_params["body"] = {"l": 0.1, "w": 0.1, "h": 0.085, "m": 0.5}
+    geom_params["body"] = {"l": 0.4, "w": 0.4, "h": 0.085, "m": 0.5}
     geom_params["payload"] = {"l": 0.12, "w": 0.12, "h": 0.04, "m": 0.1}
     geom_params["arms"] = {"l": 0.3, "w":0.015, "h":0.015, "m":0.025} #0.17 total arm
     geom_params["motors"] = {"h":0.02, "r":0.025, "m":0.02}
